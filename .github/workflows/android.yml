@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Android APK
 
 on:
   push:
@@ -21,8 +21,11 @@ jobs:
       - name: Install Gradle
         run: sudo apt-get update && sudo apt-get install -y gradle
 
+      - name: Show Gradle tasks (debug)
+        run: gradle tasks
+
       - name: Build Debug APK
-        run: gradle assembleDebug
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
