@@ -2,12 +2,9 @@
 <resources>
 
     <style name="Theme.Domino" parent="Theme.Material3.DayNight.NoActionBar">
-
-        <!-- الألوان الأساسية -->
-        <item name="colorPrimary">#6750A4</item>
-        <item name="colorSecondary">#625B71</item>
-        <item name="colorTertiary">#7D5260</item>
-
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorSecondary">@color/purple_700</item>
+        <item name="colorTertiary">@color/teal_200</item>
     </style>
 
 </resources>
