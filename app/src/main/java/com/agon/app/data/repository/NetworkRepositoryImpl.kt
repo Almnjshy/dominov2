@@ -10,15 +10,6 @@ import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Real NetworkRepository using NSD (Network Service Discovery) + TCP Sockets.
- * Works over WiFi or Mobile Hotspot — no internet required.
- *
- * Flow:
- *  HOST: createRoom() → NsdGameServer starts → broadcasts NSD → accepts connections
- *  CLIENT: discoverRooms() → NsdGameClient discovers → joinRoom() → TCP connect
- *  BOTH: sendGameAction() → TCP → other devices receive → GameState updates
- */
 @Singleton
 class NetworkRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context
@@ -34,54 +25,71 @@ class NetworkRepositoryImpl @Inject constructor(
 
     private val _discoveredRooms = MutableStateFlow<List<NetworkRoom>>(emptyList())
 
-    // Active server/client
     private var server: NsdGameServer? = null
     private var client: NsdGameClient? = null
-    private var localPlayerId: String = ""
-    private var localPlayerIndex: Int = 0
 
-    // ── HOST: Create room ──────────────────────────
-    override suspend fun createRoom(roomName: String, maxPlayers: Int): Result<NetworkState> {
+    private var localPlayerId: String = ""
+
+    // ── HOST ───────────────────────────────
+    override suspend fun createRoom(
+        roomName: String,
+        maxPlayers: Int
+    ): Result<NetworkState> {
         return try {
+
             val srv = NsdGameServer(context, roomName, maxPlayers)
             server = srv
 
-            // Listen to server events
             scope.launch {
-                srv.events.collect { packet -> handleServerPacket(packet, maxPlayers) }
+                srv.events.collect { packet ->
+                    handleServerPacket(packet)
+                }
             }
 
             val portResult = srv.start()
-            if (portResult.isFailure) return Result.failure(portResult.exceptionOrNull()!!)
+            if (portResult.isFailure) {
+                return Result.failure(portResult.exceptionOrNull()!!)
+            }
 
             localPlayerId = "host_${System.currentTimeMillis()}"
-            localPlayerIndex = 0
 
             val hostPlayer = NetworkPlayer(
-                id = localPlayerId, name = "المضيف", isHost = true, isReady = true
+                id = localPlayerId,
+                name = "المضيف",
+                isHost = true,
+                isReady = true
             )
+
             val newState = NetworkState(
-                isConnected = true, isHost = true,
-                roomId = roomName, roomName = roomName,
+                isConnected = true,
+                isHost = true,
+                roomId = roomName,
+                roomName = roomName,
                 connectedPlayers = listOf(hostPlayer),
                 localPlayerId = localPlayerId,
-                playerCount = 1,
                 status = NetworkStatus.CONNECTED
             )
+
             _networkState.value = newState
+
             Result.success(newState)
+
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    // ── CLIENT: Discover rooms ─────────────────────
+    // ── CLIENT DISCOVERY ─────────────────────
     override suspend fun discoverRooms(): Result<List<NetworkRoom>> {
         return try {
-            _networkState.value = _networkState.value.copy(status = NetworkStatus.SYNCING)
+
+            _networkState.value =
+                _networkState.value.copy(status = NetworkStatus.SYNCING)
+
             val cl = NsdGameClient(context)
 
             val found = mutableListOf<NetworkRoom>()
+
             val job = scope.launch {
                 cl.discoveredRooms.collect { room ->
                     val networkRoom = NetworkRoom(
@@ -93,6 +101,7 @@ class NetworkRepositoryImpl @Inject constructor(
                         maxPlayers = 4,
                         port = room.port
                     )
+
                     if (found.none { it.id == networkRoom.id }) {
                         found.add(networkRoom)
                         _discoveredRooms.value = found.toList()
@@ -101,63 +110,91 @@ class NetworkRepositoryImpl @Inject constructor(
             }
 
             cl.startDiscovery()
-            delay(3000) // 3 seconds discovery window
+            delay(3000)
             cl.stopDiscovery()
             job.cancel()
 
-            _networkState.value = _networkState.value.copy(status = NetworkStatus.DISCONNECTED)
+            _networkState.value =
+                _networkState.value.copy(status = NetworkStatus.DISCONNECTED)
+
             Result.success(_discoveredRooms.value)
+
         } catch (e: Exception) {
-            _networkState.value = _networkState.value.copy(status = NetworkStatus.ERROR, error = e.message)
+            _networkState.value =
+                _networkState.value.copy(
+                    status = NetworkStatus.ERROR,
+                    error = e.message
+                )
             Result.failure(e)
         }
     }
 
-    // ── CLIENT: Join room ──────────────────────────
-    override suspend fun joinRoom(room: NetworkRoom, playerName: String): Result<NetworkState> {
+    // ── JOIN ───────────────────────────────
+    override suspend fun joinRoom(
+        room: NetworkRoom,
+        playerName: String
+    ): Result<NetworkState> {
         return try {
-            _networkState.value = _networkState.value.copy(status = NetworkStatus.CONNECTING)
+
+            _networkState.value =
+                _networkState.value.copy(status = NetworkStatus.CONNECTING)
+
             val cl = NsdGameClient(context)
             client = cl
 
-            // Listen to client events
             scope.launch {
-                cl.events.collect { packet -> handleClientPacket(packet) }
+                cl.events.collect { packet ->
+                    handleClientPacket(packet)
+                }
             }
 
             val port = room.port ?: NsdGameServer.PORT
+
             val connectResult = cl.connect(room.hostAddress, port, playerName)
-            if (connectResult.isFailure) return Result.failure(connectResult.exceptionOrNull()!!)
+            if (connectResult.isFailure) {
+                return Result.failure(connectResult.exceptionOrNull()!!)
+            }
 
             localPlayerId = "client_${System.currentTimeMillis()}"
+
             val localPlayer = NetworkPlayer(
-                id = localPlayerId, name = playerName, isHost = false
+                id = localPlayerId,
+                name = playerName,
+                isHost = false
             )
+
             val newState = NetworkState(
-                isConnected = true, isHost = false,
-                roomId = room.id, roomName = room.name,
+                isConnected = true,
+                isHost = false,
+                roomId = room.id,
+                roomName = room.name,
                 connectedPlayers = listOf(localPlayer),
                 localPlayerId = localPlayerId,
-                playerCount = room.currentPlayers + 1,
                 status = NetworkStatus.CONNECTED
             )
+
             _networkState.value = newState
+
             _events.emit(NetworkEvent.PlayerJoined(localPlayer))
+
             Result.success(newState)
+
         } catch (e: Exception) {
-            _networkState.value = _networkState.value.copy(status = NetworkStatus.ERROR, error = e.message)
+            _networkState.value =
+                _networkState.value.copy(
+                    status = NetworkStatus.ERROR,
+                    error = e.message
+                )
             Result.failure(e)
         }
     }
 
-    // ── Send game action over network ──────────────
+    // ── ACTION ─────────────────────────────
     override suspend fun sendGameAction(action: GameAction): Result<Unit> {
         return try {
             if (_networkState.value.isHost) {
-                // Host broadcasts to all clients
                 server?.broadcastAction(action, localPlayerId)
             } else {
-                // Client sends to host
                 client?.sendAction(action)
             }
             Result.success(Unit)
@@ -166,7 +203,6 @@ class NetworkRepositoryImpl @Inject constructor(
         }
     }
 
-    // ── HOST: Sync full game state to all clients ──
     override suspend fun syncGameState(state: GameState): Result<Unit> {
         return try {
             if (_networkState.value.isHost) {
@@ -180,89 +216,129 @@ class NetworkRepositoryImpl @Inject constructor(
 
     override suspend fun leaveRoom(): Result<Unit> {
         return try {
-            server?.stop(); server = null
-            client?.disconnect(); client = null
+            server?.stop()
+            client?.disconnect()
+            server = null
+            client = null
+
             _networkState.value = NetworkState()
             _events.emit(NetworkEvent.ConnectionLost)
+
             Result.success(Unit)
+
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     override suspend fun startGame(): Result<Unit> {
-        if (!_networkState.value.isHost) return Result.failure(IllegalStateException("فقط المضيف يمكنه بدء اللعبة"))
+        if (!_networkState.value.isHost) {
+            return Result.failure(
+                IllegalStateException("فقط المضيف يمكنه بدء اللعبة")
+            )
+        }
         return Result.success(Unit)
     }
 
     override suspend fun disconnect(): Result<Unit> = leaveRoom()
 
     override suspend fun reconnect(): Result<NetworkState> {
-        _networkState.value = _networkState.value.copy(status = NetworkStatus.RECONNECTING)
-        return Result.failure(UnsupportedOperationException("أعد الاتصال يدوياً"))
+        _networkState.value =
+            _networkState.value.copy(status = NetworkStatus.RECONNECTING)
+        return Result.failure(
+            UnsupportedOperationException("أعد الاتصال يدوياً")
+        )
     }
 
     override suspend fun setReady(isReady: Boolean): Result<Unit> {
         val state = _networkState.value
+
         val updated = state.connectedPlayers.map {
-            if (it.id == state.localPlayerId) it.copy(isReady = isReady) else it
+            if (it.id == state.localPlayerId)
+                it.copy(isReady = isReady)
+            else it
         }
+
         _networkState.value = state.copy(connectedPlayers = updated)
+
         return Result.success(Unit)
     }
 
-    // ── Event handlers ─────────────────────────────
-
-    private suspend fun handleServerPacket(packet: NetworkPacket, maxPlayers: Int) {
+    // ── SERVER HANDLER ─────────────────────
+    private suspend fun handleServerPacket(packet: NetworkPacket) {
         when (packet) {
+
             is NetworkPacket.PlayerConnected -> {
-                val newPlayer = NetworkPlayer(
-                    id = packet.id, name = packet.name, isHost = false
+                val player = NetworkPlayer(
+                    id = packet.id,
+                    name = packet.name,
+                    isHost = false
                 )
-                val current = _networkState.value
-                val updatedPlayers = current.connectedPlayers + newPlayer
-                _networkState.value = current.copy(
-                    connectedPlayers = updatedPlayers,
-                    playerCount = updatedPlayers.size
+
+                val updated = _networkState.value.connectedPlayers + player
+
+                _networkState.value = _networkState.value.copy(
+                    connectedPlayers = updated
                 )
-                _events.emit(NetworkEvent.PlayerJoined(newPlayer))
+
+                _events.emit(NetworkEvent.PlayerJoined(player))
             }
+
             is NetworkPacket.PlayerDisconnected -> {
-                val current = _networkState.value
-                val updated = current.connectedPlayers.filter { it.id != packet.id }
-                _networkState.value = current.copy(connectedPlayers = updated, playerCount = updated.size)
+                val updated =
+                    _networkState.value.connectedPlayers
+                        .filter { it.id != packet.id }
+
+                _networkState.value =
+                    _networkState.value.copy(connectedPlayers = updated)
+
                 _events.emit(NetworkEvent.PlayerLeft(packet.id))
             }
+
             is NetworkPacket.ActionReceived -> {
                 _events.emit(NetworkEvent.PlayerAction(packet.action))
             }
+
             is NetworkPacket.Error -> {
-                _networkState.value = _networkState.value.copy(error = packet.message)
+                _networkState.value =
+                    _networkState.value.copy(error = packet.message)
+
                 _events.emit(NetworkEvent.Error(packet.message))
             }
-            else -> {}
+
+            else -> Unit
         }
     }
 
+    // ── CLIENT HANDLER ─────────────────────
     private suspend fun handleClientPacket(packet: NetworkPacket) {
         when (packet) {
+
             is NetworkPacket.StateSync -> {
                 _events.emit(NetworkEvent.GameStateSync(packet.state))
             }
+
             is NetworkPacket.ActionReceived -> {
                 _events.emit(NetworkEvent.PlayerAction(packet.action))
             }
+
             is NetworkPacket.ConnectionLost -> {
                 _networkState.value = _networkState.value.copy(
-                    isConnected = false, status = NetworkStatus.ERROR, error = "انقطع الاتصال"
+                    isConnected = false,
+                    status = NetworkStatus.ERROR,
+                    error = "انقطع الاتصال"
                 )
                 _events.emit(NetworkEvent.ConnectionLost)
             }
+
             is NetworkPacket.Error -> {
-                _networkState.value = _networkState.value.copy(error = packet.message)
+                _networkState.value =
+                    _networkState.value.copy(error = packet.message)
+
                 _events.emit(NetworkEvent.Error(packet.message))
             }
-            else -> {}
+
+            else -> Unit
         }
     }
 }
