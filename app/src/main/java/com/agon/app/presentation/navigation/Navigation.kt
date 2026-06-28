@@ -4,34 +4,18 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
 import com.agon.app.domain.model.GameMode
-import com.agon.app.presentation.screens.DemoScreen
-import com.agon.app.presentation.screens.GameScreen
-import com.agon.app.presentation.screens.MainMenuScreen
-import com.agon.app.presentation.screens.NetworkScreen
-import com.agon.app.presentation.screens.SettingsScreen
-import com.agon.app.presentation.screens.SplashScreen
-import com.agon.app.presentation.screens.StatsScreen
-import com.agon.app.presentation.screens.VerificationScreen
-import com.agon.app.presentation.viewmodel.GameViewModel
-import com.agon.app.presentation.viewmodel.MenuViewModel
-import com.agon.app.presentation.viewmodel.NetworkViewModel
-import com.agon.app.presentation.viewmodel.SettingsViewModel
-import com.agon.app.presentation.viewmodel.SplashViewModel
-import com.agon.app.presentation.viewmodel.StatsViewModel
+import com.agon.app.presentation.screens.*
+import com.agon.app.presentation.viewmodel.*
 
 sealed class Screen(val route: String) {
     data object Splash : Screen("splash")
@@ -44,20 +28,6 @@ sealed class Screen(val route: String) {
     data object Stats : Screen("stats")
     data object Verify : Screen("verify")
     data object Demo : Screen("demo")
-
-    companion object {
-        fun fromRoute(route: String?): Screen = when {
-            route == null -> Splash
-            route.startsWith("game/") -> Game
-            route == "menu" -> Menu
-            route == "network" -> Network
-            route == "settings" -> Settings
-            route == "stats" -> Stats
-            route == "verify" -> Verify
-            route == "demo" -> Demo
-            else -> Splash
-        }
-    }
 }
 
 @Composable
@@ -65,54 +35,49 @@ fun DominoNavigation(
     navController: NavHostController = rememberNavController(),
     startDestination: String = Screen.Splash.route
 ) {
-    val context = LocalContext.current
-
-    LaunchedEffect(Unit) {
-        val intent = (context as? android.app.Activity)?.intent
-        val uri = intent?.data
-        if (uri != null) {
-            when (uri.path) {
-                "/menu" -> navController.navigate(Screen.Menu.route) { popUpTo(0) }
-                "/game" -> {
-                    val mode = uri.getQueryParameter("mode")?.let {
-                        try { GameMode.valueOf(it.uppercase()) } catch (e: Exception) { null }
-                    } ?: GameMode.HUMAN_VS_AI
-                    navController.navigate(Screen.Game.createRoute(mode)) { popUpTo(0) }
-                }
-                "/network" -> navController.navigate(Screen.Network.route) { popUpTo(0) }
-                "/settings" -> navController.navigate(Screen.Settings.route) { popUpTo(0) }
-                "/stats" -> navController.navigate(Screen.Stats.route) { popUpTo(0) }
-            }
-            intent.data = null
-        }
-    }
 
     NavHost(
         navController = navController,
         startDestination = startDestination,
+
         enterTransition = {
             fadeIn(animationSpec = tween(300)) +
-            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    slideIntoContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Left,
+                        tween(300)
+                    )
         },
+
         exitTransition = {
             fadeOut(animationSpec = tween(300)) +
-            slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(300))
+                    slideOutOfContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Left,
+                        tween(300)
+                    )
         },
+
         popEnterTransition = {
             fadeIn(animationSpec = tween(300)) +
-            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    slideIntoContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Right,
+                        tween(300)
+                    )
         },
+
         popExitTransition = {
             fadeOut(animationSpec = tween(300)) +
-            slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(300))
+                    slideOutOfContainer(
+                        AnimatedContentTransitionScope.SlideDirection.Right,
+                        tween(300)
+                    )
         }
     ) {
-        composable(
-            route = Screen.Splash.route,
-            deepLinks = listOf(navDeepLink { uriPattern = "domino://splash" })
-        ) {
-            val viewModel: SplashViewModel = hiltViewModel()
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+        // ───── SPLASH ─────
+        composable(Screen.Splash.route) {
+            val vm: SplashViewModel = hiltViewModel()
+            val state by vm.uiState.collectAsStateWithLifecycle()
+
             SplashScreen(
                 progress = state.progress,
                 isLoading = state.isLoading,
@@ -122,31 +87,33 @@ fun DominoNavigation(
                         popUpTo(Screen.Splash.route) { inclusive = true }
                     }
                 },
-                onRetry = { viewModel.retry() }
+                onRetry = { vm.retry() }
             )
         }
 
-        composable(
-            route = Screen.Menu.route,
-            deepLinks = listOf(navDeepLink { uriPattern = "domino://menu" })
-        ) {
-            val viewModel: MenuViewModel = hiltViewModel()
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
+        // ───── MENU ─────
+        composable(Screen.Menu.route) {
+            val vm: MenuViewModel = hiltViewModel()
+            val state by vm.uiState.collectAsStateWithLifecycle()
+
             MainMenuScreen(
                 selectedMode = state.selectedMode,
                 isLoading = state.isLoading,
                 error = state.error,
-                onModeSelected = { viewModel.selectMode(it) },
-                onNewGame = { navController.navigate(Screen.Game.createRoute(state.selectedMode)) },
+                onModeSelected = vm::selectMode,
+                onNewGame = {
+                    navController.navigate(Screen.Game.createRoute(state.selectedMode))
+                },
                 onNetwork = { navController.navigate(Screen.Network.route) },
                 onSettings = { navController.navigate(Screen.Settings.route) },
                 onStats = { navController.navigate(Screen.Stats.route) },
                 onVerify = { navController.navigate(Screen.Verify.route) },
                 onDemo = { navController.navigate(Screen.Demo.route) },
-                onClearError = { viewModel.clearError() }
+                onClearError = vm::clearError
             )
         }
 
+        // ───── GAME ─────
         composable(
             route = Screen.Game.route,
             arguments = listOf(
@@ -154,62 +121,85 @@ fun DominoNavigation(
                     type = NavType.StringType
                     defaultValue = GameMode.HUMAN_VS_AI.name
                 }
-            ),
-            deepLinks = listOf(navDeepLink { uriPattern = "domino://game?mode={mode}" })
-        ) { backStackEntry ->
-            val modeName = backStackEntry.arguments?.getString("mode") ?: GameMode.HUMAN_VS_AI.name
-            val gameMode = try { GameMode.valueOf(modeName) } catch (e: Exception) { GameMode.HUMAN_VS_AI }
-            val viewModel: GameViewModel = hiltViewModel()
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
-            LaunchedEffect(gameMode) { viewModel.newGame(gameMode) }
+            )
+        ) { entry ->
+
+            val mode = try {
+                GameMode.valueOf(entry.arguments?.getString("mode") ?: "")
+            } catch (e: Exception) {
+                GameMode.HUMAN_VS_AI
+            }
+
+            val vm: GameViewModel = hiltViewModel()
+            val state by vm.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(mode) {
+                vm.newGame(mode)
+            }
+
+            val gameState = state.gameState
+
             GameScreen(
-                gameState = state.gameState,
+                gameState = gameState,
                 isAiThinking = state.isAiThinking,
-                showResult = state.showResult,
+
+                // ✅ FIX: بدل showResult الغير موجود
+                showResult = state.roundResult != null,
+
                 error = state.error,
-                onTileClick = { tile, side -> viewModel.playTile(tile, side) },
-                onDrawOrPass = { viewModel.drawOrPass() },
-                legalSides = { tile -> viewModel.getLegalSides(tile) },
-                onNewGame = { viewModel.newGame(gameMode) },
+
+                onTileClick = vm::playTile,
+                onDrawOrPass = vm::drawOrPass,
+                legalSides = vm::getLegalSides,
+                onNewGame = { vm.newGame(mode) },
+
                 onBackToMenu = {
                     navController.navigate(Screen.Menu.route) {
                         popUpTo(Screen.Menu.route) { inclusive = false }
                     }
                 },
-                onDismissResult = { viewModel.dismissRoundResult(); if (viewModel.uiState.value.gameState.isGameOver && !viewModel.uiState.value.gameState.isMatchOver) viewModel.newRound() },
-                onClearError = { viewModel.clearError() }
+
+                onDismissResult = {
+                    vm.dismissRoundResult()
+
+                    // حماية من crash
+                    val gs = vm.uiState.value.gameState
+                    if (gs.isGameOver && !gs.isMatchOver) {
+                        vm.newRound()
+                    }
+                },
+
+                onClearError = vm::clearError
             )
         }
 
-        composable(
-            route = Screen.Network.route,
-            deepLinks = listOf(navDeepLink { uriPattern = "domino://network" })
-        ) {
-            val viewModel: NetworkViewModel = hiltViewModel()
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
+        // ───── NETWORK ─────
+        composable(Screen.Network.route) {
+            val vm: NetworkViewModel = hiltViewModel()
+            val state by vm.uiState.collectAsStateWithLifecycle()
+
             NetworkScreen(
                 networkState = state.networkState,
                 discoveredRooms = state.discoveredRooms,
                 isLoading = state.isLoading,
                 error = state.error,
                 showCreateDialog = state.showCreateDialog,
-                onCreateRoom = { viewModel.createRoom(it) },
-                onDiscover = { viewModel.discoverRooms() },
-                onJoinRoom = { room, name -> viewModel.joinRoom(room, name) },
-                onLeaveRoom = { viewModel.leaveRoom() },
-                onShowCreateDialog = { viewModel.showCreateDialog() },
-                onDismissCreateDialog = { viewModel.dismissCreateDialog() },
+                onCreateRoom = vm::createRoom,
+                onDiscover = vm::discoverRooms,
+                onJoinRoom = vm::joinRoom,
+                onLeaveRoom = vm::leaveRoom,
+                onShowCreateDialog = vm::showCreateDialog,
+                onDismissCreateDialog = vm::dismissCreateDialog,
                 onBack = { navController.popBackStack() },
-                onClearError = { viewModel.clearError() }
+                onClearError = vm::clearError
             )
         }
 
-        composable(
-            route = Screen.Settings.route,
-            deepLinks = listOf(navDeepLink { uriPattern = "domino://settings" })
-        ) {
-            val viewModel: SettingsViewModel = hiltViewModel()
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
+        // ───── SETTINGS ─────
+        composable(Screen.Settings.route) {
+            val vm: SettingsViewModel = hiltViewModel()
+            val state by vm.uiState.collectAsStateWithLifecycle()
+
             SettingsScreen(
                 settings = state.settings,
                 hasChanges = state.hasChanges,
@@ -217,57 +207,66 @@ fun DominoNavigation(
                 error = state.error,
                 showResetConfirmation = state.showResetConfirmation,
                 saveSuccess = state.saveSuccess,
-                onVolumeChange = { viewModel.updateVolume(it) },
-                onEffectsToggle = { viewModel.toggleEffects(it) },
-                onVibrationToggle = { viewModel.toggleVibration(it) },
-                onLanguageChange = { viewModel.setLanguage(it) },
-                onModeChange = { viewModel.setPreferredMode(it) },
-                onSave = { viewModel.saveSettings() },
-                onReset = { viewModel.resetSettings() },
-                onShowResetConfirmation = { viewModel.showResetConfirmation() },
-                onDismissResetConfirmation = { viewModel.dismissResetConfirmation() },
-                onDismissSaveSuccess = { viewModel.dismissSaveSuccess() },
+
+                onVolumeChange = vm::updateVolume,
+                onEffectsToggle = vm::toggleEffects,
+                onVibrationToggle = vm::toggleVibration,
+                onLanguageChange = vm::setLanguage,
+                onModeChange = vm::setPreferredMode,
+                onSave = vm::saveSettings,
+                onReset = vm::resetSettings,
+                onShowReset = vm::showResetConfirmation,
+                onDismissReset = vm::dismissResetConfirmation,
+                onDismissSaveSuccess = vm::dismissSaveSuccess,
+
                 onBack = { navController.popBackStack() },
-                onClearError = { viewModel.clearError() }
+                onClearError = vm::clearError
             )
         }
 
-        composable(
-            route = Screen.Stats.route,
-            deepLinks = listOf(navDeepLink { uriPattern = "domino://stats" })
-        ) {
-            val viewModel: StatsViewModel = hiltViewModel()
-            val state by viewModel.uiState.collectAsStateWithLifecycle()
+        // ───── STATS ─────
+        composable(Screen.Stats.route) {
+            val vm: StatsViewModel = hiltViewModel()
+            val state by vm.uiState.collectAsStateWithLifecycle()
+
             StatsScreen(
                 stats = state.stats,
                 achievements = state.achievements,
                 isLoading = state.isLoading,
                 error = state.error,
+
                 showClearConfirmation = state.showClearConfirmation,
                 exportedJson = state.exportedJson,
                 showExportDialog = state.showExportDialog,
-                onClearStats = { viewModel.clearStats() },
-                onExport = { viewModel.exportStats() },
-                onShowClearConfirmation = { viewModel.showClearConfirmation() },
-                onDismissClearConfirmation = { viewModel.dismissClearConfirmation() },
-                onDismissExportDialog = { viewModel.dismissExportDialog() },
-                onRefresh = { viewModel.loadStats() },
+
+                onClearStats = vm::clearStats,
+                onExport = vm::exportStats,
+                onRefresh = vm::loadStats,
+
                 onBack = { navController.popBackStack() },
-                onClearError = { viewModel.clearError() }
+                onClearError = vm::clearError
             )
         }
 
-        composable(route = Screen.Demo.route) {
+        // ───── DEMO ─────
+        composable(Screen.Demo.route) {
             DemoScreen(
-                onStartAi = { navController.navigate(Screen.Game.createRoute(GameMode.HUMAN_VS_AI)) },
-                onCreateNetworkRoom = { navController.navigate(Screen.Network.route) },
+                onStartAi = {
+                    navController.navigate(Screen.Game.createRoute(GameMode.HUMAN_VS_AI))
+                },
+                onCreateNetworkRoom = {
+                    navController.navigate(Screen.Network.route)
+                },
                 onBack = { navController.popBackStack() }
             )
         }
 
-        composable(route = Screen.Verify.route) {
+        // ───── VERIFY ─────
+        composable(Screen.Verify.route) {
             VerificationScreen(
-                onStartAi = { navController.navigate(Screen.Game.createRoute(GameMode.HUMAN_VS_AI)) },
+                onStartAi = {
+                    navController.navigate(Screen.Game.createRoute(GameMode.HUMAN_VS_AI))
+                },
                 onNetwork = { navController.navigate(Screen.Network.route) },
                 onSettings = { navController.navigate(Screen.Settings.route) },
                 onStats = { navController.navigate(Screen.Stats.route) },
